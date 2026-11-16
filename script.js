@@ -1,19 +1,19 @@
-// ===== Database ucapan (Firebase Firestore) =====
-const FB = { projectId: "", apiKey: "" };
-const fbAktif = Boolean(FB.projectId && FB.apiKey);
-const dasarDB = `https://firestore.googleapis.com/v1/projects/${FB.projectId}/databases/(default)/documents`;
+const el = id => document.getElementById(id);
 
-// 1. Penanganan Parameter URL untuk Nama Tamu (?to=...)
-const urlParams = new URLSearchParams(window.location.search);
-const namaTamu = urlParams.get("to");
-if (namaTamu) {
-  // decodeURIComponent memastikan spasi (+) atau karakter khusus terbaca normal
-  document.getElementById("nama-tamu").textContent = decodeURIComponent(namaTamu);
-}
+// Mode ringan: otomatis untuk HP berspesifikasi sangat rendah atau hemat data.
+// Tes manual: tambahkan ?ringan=1 di link. Matikan paksa: ?ringan=0
+const paksa = new URLSearchParams(location.search).get("ringan");
+const lemah = (navigator.deviceMemory && navigator.deviceMemory <= 2) || navigator.hardwareConcurrency <= 2 || (navigator.connection && navigator.connection.saveData);
+const ringan = paksa === "1" || (paksa !== "0" && Boolean(lemah));
+if (ringan) document.body.classList.add("ringan");
 
-// Variabel Musik & Tombol Musik
-const musik = document.getElementById("musik-latar");
-const tombolMusik = document.getElementById("tombol-musik");
+// 1. Nama tamu dari link: index.html?to=Nama
+const namaTamu = new URLSearchParams(window.location.search).get("to");
+if (namaTamu) el("nama-tamu").textContent = namaTamu;
+
+// 2. Musik
+const musik = el("musik-latar");
+const tombolMusik = el("tombol-musik");
 let sedangDiputar = false;
 
 function toggleMusik() {
@@ -26,41 +26,10 @@ function toggleMusik() {
     musik.play().then(() => {
       tombolMusik.textContent = "🔊";
       sedangDiputar = true;
-    }).catch(error => {
-      console.log("Autoplay dicegah:", error);
-    });
+    }).catch(error => console.log("Autoplay dicegah:", error));
   }
 }
-
-if (tombolMusik) {
-  tombolMusik.addEventListener("click", toggleMusik);
-}
-
-// 2. Tombol "Buka Undangan" (Efek Buka Amplop & Putar Musik)
-const cover = document.getElementById("cover");
-const isi = document.getElementById("isi");
-const btn = document.getElementById("btn-buka");
-
-btn.addEventListener("click", () => {
-  btn.disabled = true;
-  cover.classList.add("membuka");                      
-
-  if (musik) {
-    musik.play().then(() => {
-      sedangDiputar = true;
-      tombolMusik.textContent = "🔊";
-    }).catch(error => {
-      console.log("Autoplay dicegah browser:", error);
-    });
-  }
-
-  setTimeout(() => {                                   
-    cover.hidden = true;
-    isi.hidden = false;
-    document.body.classList.remove("terkunci");
-    window.scrollTo(0, 0);
-  }, 800);
-});
+if (tombolMusik) tombolMusik.addEventListener("click", toggleMusik);
 
 // Musik berhenti otomatis saat tab disembunyikan
 window.addEventListener("visibilitychange", () => {
@@ -71,9 +40,32 @@ window.addEventListener("visibilitychange", () => {
   }
 });
 
-// 3. Hitung mundur (WITA = UTC+8)
+// 3. Tombol "Buka Undangan" (efek amplop dan putar musik)
+const cover = el("cover");
+const isi = el("isi");
+const btn = el("btn-buka");
+
+btn.addEventListener("click", () => {
+  btn.disabled = true;
+  cover.classList.add("membuka");
+
+  if (musik) {
+    musik.play().then(() => {
+      sedangDiputar = true;
+      tombolMusik.textContent = "🔊";
+    }).catch(error => console.log("Autoplay dicegah browser:", error));
+  }
+
+  setTimeout(() => {
+    cover.hidden = true;
+    isi.hidden = false;
+    document.body.classList.remove("terkunci");
+    window.scrollTo(0, 0);
+  }, 800);
+});
+
+// 4. Hitung mundur (WITA = UTC+8)
 const target = new Date("2026-11-18T09:00:00+08:00").getTime();
-const el = id => document.getElementById(id);
 function hitung() {
   const selisih = target - Date.now();
   if (selisih <= 0) {
@@ -89,80 +81,19 @@ function hitung() {
 hitung();
 setInterval(hitung, 1000);
 
-// 4. Kirim ucapan
-const form = document.getElementById("form-ucapan");
+// 5. Kirim ucapan lewat WhatsApp
+const form = el("form-ucapan");
 const status = el("status-ucapan");
-const daftar = el("daftar-ucapan");
-if (fbAktif) form.querySelector("button[type=submit]").textContent = "Kirim Ucapan";
-else el("wishes").hidden = true;
-
-form.addEventListener("submit", async e => {
+form.addEventListener("submit", e => {
   e.preventDefault();
-  const d = { nama: form.nama.value.trim(), hadir: form.hadir.value, ucapan: form.ucapan.value.trim() };
-  if (!fbAktif) {
-    const pesan = "Assalamu'alaikum, saya " + d.nama + ".\nKehadiran: " + d.hadir + "\nUcapan: " + d.ucapan;
-    window.open("https://wa.me/6281343876571?text=" + encodeURIComponent(pesan), "_blank");
-    return;
-  }
-  const tombol = form.querySelector("button[type=submit]");
-  tombol.disabled = true;
-  status.textContent = "Mengirim...";
-  try {
-    const r = await fetch(`${dasarDB}/ucapan?key=${FB.apiKey}`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fields: {
-        nama: { stringValue: d.nama }, hadir: { stringValue: d.hadir },
-        ucapan: { stringValue: d.ucapan }, waktu: { timestampValue: new Date().toISOString() } } })
-    });
-    if (!r.ok) throw new Error(r.status);
-    tampilUcapan(d, true);
-    form.reset();
-    status.textContent = "Terkirim!";
-  } catch {
-    status.textContent = "Gagal mengirim.";
-  }
-  tombol.disabled = false;
+  const pesan = "Assalamu'alaikum, saya " + form.nama.value.trim() +
+    ".\nKehadiran: " + form.hadir.value + "\nUcapan: " + form.ucapan.value.trim();
+  window.open("https://wa.me/6281343876571?text=" + encodeURIComponent(pesan), "_blank");
+  status.textContent = "WhatsApp terbuka. Tekan kirim di sana untuk menyampaikan ucapan Anda.";
+  form.reset();
 });
 
-function tampilUcapan(d, diAwal) {
-  daftar.querySelector(".kosong")?.remove();
-  const item = document.createElement("article");
-  item.className = "ucapan-item";
-  const kepala = document.createElement("div");
-  kepala.className = "kepala";
-  const nama = document.createElement("strong");
-  nama.textContent = d.nama; 
-  const lencana = document.createElement("span");
-  lencana.className = "lencana";
-  lencana.textContent = d.hadir;
-  kepala.append(nama, lencana);
-  const isiUcapan = document.createElement("p");
-  isiUcapan.textContent = d.ucapan;
-  item.append(kepala, isiUcapan);
-  diAwal ? daftar.prepend(item) : daftar.append(item);
-}
-
-async function muatUcapan() {
-  try {
-    const r = await fetch(`${dasarDB}:runQuery?key=${FB.apiKey}`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ structuredQuery: {
-        from: [{ collectionId: "ucapan" }],
-        orderBy: [{ field: { fieldPath: "waktu" }, direction: "DESCENDING" }], limit: 30 } })
-    });
-    const data = await r.json();
-    daftar.innerHTML = '<p class="kosong">Belum ada ucapan.</p>';
-    data.filter(x => x.document).reverse().forEach(x => {
-      const f = x.document.fields;
-      tampilUcapan({ nama: f.nama?.stringValue || "", hadir: f.hadir?.stringValue || "", ucapan: f.ucapan?.stringValue || "" }, true);
-    });
-  } catch {
-    daftar.innerHTML = '<p class="kosong">Gagal memuat.</p>';
-  }
-}
-if (fbAktif) muatUcapan();
-
-// 5. Tombol salin
+// 6. Tombol salin
 function pasangSalin(idTombol, idTeks, label) {
   const tombol = el(idTombol);
   tombol.addEventListener("click", async () => {
@@ -178,86 +109,173 @@ function pasangSalin(idTombol, idTeks, label) {
 pasangSalin("btn-salin", "nomor-dana", "Salin Nomor");
 pasangSalin("btn-salin-alamat", "alamat-kado", "Salin Alamat");
 
-// 6. Kilau emas latar
+// 7. Kilau emas latar
 const latar = document.querySelector(".latar-buram");
-for (let i = 0; i < 8; i++) {
+for (let i = 0; i < (ringan ? 0 : 8); i++) {
   const k = document.createElement("span");
   k.className = "kilau";
   k.style.cssText = `left:${Math.random() * 100}%;top:${Math.random() * 100}%;--u:${2 + Math.random() * 2}px;--t:${6 + Math.random() * 4}s;--d:${-Math.random() * 8}s`;
   latar.appendChild(k);
 }
 
-// 7. Interaksi Peta
+// 8. Interaksi peta (ketuk dulu supaya halaman tidak ikut tergeser)
 const petaBox = document.querySelector(".peta");
-if (petaBox) {
-  petaBox.addEventListener("click", () => {
-    petaBox.classList.add("aktif");
-  });
-}
+if (petaBox) petaBox.addEventListener("click", () => petaBox.classList.add("aktif"));
 
-// 8. Efek Scroll Reveal Mulus (Diperhalus dengan durasi 1.4s)
+// 9. Efek scroll: muncul tiap bagian masuk layar, dan diulang setiap kali di-scroll lagi
 const seksiList = document.querySelectorAll("#isi section, #isi footer");
 const gayaAnimasi = ["muncul-up", "muncul-zoom", "muncul-left", "muncul-right"];
+const kurangiGerak = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 seksiList.forEach((s, index) => {
-  const pilihanGaya = gayaAnimasi[index % gayaAnimasi.length];
-  s.classList.add(pilihanGaya);
+  s.classList.add(gayaAnimasi[index % gayaAnimasi.length]);
+  [...s.children].forEach((anak, i) => anak.style.setProperty("--i", i));   // urutan muncul isi bagian
+  // dua bunga yang mekar di sudut bagian
+  s.insertAdjacentHTML("beforeend",
+    '<svg class="bunga-sudut a" aria-hidden="true"><use href="#bunga"/></svg>' +
+    '<svg class="bunga-sudut b" aria-hidden="true"><use href="#bunga"/></svg>');
 });
 
-const pengamat = new IntersectionObserver((daftar) => {
+const pengamat = new IntersectionObserver(daftar => {
   daftar.forEach(e => {
-    if (e.isIntersecting) {
-      e.target.classList.add("tampil");
-    }
+    if (e.intersectionRatio >= 0.12) e.target.classList.add("tampil");
+    else if (e.intersectionRatio === 0) e.target.classList.remove("tampil");   // keluar layar: siap diputar lagi
   });
-}, { threshold: 0.15 });
+}, { threshold: [0, 0.12] });
+seksiList.forEach(s => pengamat.observe(s));
 
-seksiList.forEach((s) => {
-  pengamat.observe(s);
+// 9b. Bunga dan kelopak jatuh setiap kali halaman di-scroll
+const hujan = document.createElement("div");
+hujan.className = "hujan";
+document.body.appendChild(hujan);
+const warnaBunga = ["#f29e88", "#e58aa0", "#f6c7b0", "#e8c07a", "#f4a9b8"];
+let posisiTerakhir = 0, jarakScroll = 0;
+
+function jatuhkan() {
+  if (hujan.children.length > 16) return;
+  const item = document.createElement("span");
+  const bunga = Math.random() < 0.55;
+  item.className = "jatuh " + (bunga ? "bunga" : "kelopak");
+  item.style.cssText =
+    `left:${Math.random() * 100}%;--u:${16 + Math.random() * 20}px;--t:${7 + Math.random() * 4}s;` +
+    `--x:${Math.random() * 140 - 70}px;--w:${warnaBunga[Math.floor(Math.random() * warnaBunga.length)]}`;
+  if (bunga) item.innerHTML = '<svg viewBox="0 0 100 100" aria-hidden="true"><use href="#bunga"/></svg>';
+  item.addEventListener("animationend", () => item.remove());
+  hujan.appendChild(item);
+}
+window.addEventListener("scroll", () => {
+  if (kurangiGerak || ringan || isi.hidden) return;
+  jarakScroll += Math.abs(window.scrollY - posisiTerakhir);
+  posisiTerakhir = window.scrollY;
+  if (jarakScroll > 140) { jarakScroll = 0; jatuhkan(); }
+}, { passive: true });
+
+// 9c. Ketuk di mana saja: bunga kecil mekar dan kelopaknya memercik
+document.addEventListener("pointerdown", e => {
+  if (kurangiGerak || ringan || isi.hidden || hujan.children.length > 40) return;
+  if (e.target.closest("button, a, input, textarea, label, .slider")) return;
+  const warna = () => warnaBunga[Math.floor(Math.random() * warnaBunga.length)];
+  const bunga = document.createElement("span");
+  bunga.className = "tap-bunga";
+  bunga.style.cssText = `left:${e.clientX}px;top:${e.clientY}px;--w:${warna()}`;
+  bunga.innerHTML = '<svg viewBox="0 0 100 100" aria-hidden="true"><use href="#bunga"/></svg>';
+  bunga.addEventListener("animationend", () => bunga.remove());
+  hujan.appendChild(bunga);
+  for (let i = 0; i < 6; i++) {
+    const sudut = (Math.PI * 2 / 6) * i + Math.random() * 0.6;
+    const jarak = 34 + Math.random() * 30;
+    const k = document.createElement("span");
+    k.className = "cipratan";
+    k.style.cssText = `left:${e.clientX}px;top:${e.clientY}px;--dx:${Math.cos(sudut) * jarak}px;--dy:${Math.sin(sudut) * jarak}px;--w:${warna()}`;
+    k.addEventListener("animationend", () => k.remove());
+    hujan.appendChild(k);
+  }
 });
 
-// 9. Detik
+// 10. Detik "mengetuk" tiap berganti
 setInterval(() => {
   const d = el("detik");
-  if(d) {
-    d.classList.remove("ganti"); void d.offsetWidth; d.classList.add("ganti");
-  }
+  if (d) { d.classList.remove("ganti"); void d.offsetWidth; d.classList.add("ganti"); }
 }, 1000);
 
-// 10. Galeri foto slider
+// 11. Galeri: satu foto per geser, berganti otomatis, dengan thumbnail, penghitung, dan garis waktu
 window.addEventListener("load", () => {
   const slides = el("slides");
-  if(!slides) return;
+  if (!slides) return;
   const fotos = [...slides.querySelectorAll("img")];
   if (!fotos.length) { el("galeri").hidden = true; return; }
-  const titik = el("titik");
-  let aktif = 0;
 
-  function tandai() { [...titik.children].forEach((b, i) => b.classList.toggle("on", i === aktif)); }
-  function ke(i) {
-    aktif = (i + fotos.length) % fotos.length;
-    slides.scrollTo({ left: aktif * slides.clientWidth, behavior: "smooth" });
-    tandai();
+  const slider = slides.parentElement;
+  const thumbs = el("titik");
+  const btnPrev = el("sebelum"), btnNext = el("sesudah");
+  const DURASI = 4000;                        // ganti foto tiap 4 detik
+  const nol = n => String(n).padStart(2, "0");
+  let aktif = 0, terlihat = false, jalan = !kurangiGerak && fotos.length > 1;
+  let timer = null, idle = null, pindah = false;
+
+  thumbs.classList.add("thumbs");
+  const hitungFoto = document.createElement("span");
+  hitungFoto.className = "hitung-foto";
+  slider.append(hitungFoto);
+  const progres = document.createElement("div");
+  progres.className = "progres";
+  progres.innerHTML = "<i></i>";
+  slider.after(progres);
+  ["a", "b", "c"].forEach(k => slider.insertAdjacentHTML("beforeend", '<svg class="kerlip ' + k + '" aria-hidden="true"><use href="#bintang"/></svg>'));
+
+  function tandai() {
+    [...thumbs.children].forEach((b, i) => b.classList.toggle("on", i === aktif));
+    hitungFoto.textContent = nol(aktif + 1) + " / " + nol(fotos.length);
   }
-  fotos.forEach((_, i) => {
+  function mulaiProgres() {
+    const bar = progres.firstElementChild;
+    bar.style.animation = "none"; void bar.offsetWidth;
+    if (jalan) { progres.classList.remove("jeda"); bar.style.animation = "progres " + DURASI + "ms linear forwards"; }
+    else progres.classList.add("jeda");
+  }
+  function ke(i) {
+    const lama = aktif;
+    aktif = (i + fotos.length) % fotos.length;
+    const balikAwal = lama === fotos.length - 1 && aktif === 0 && i >= fotos.length;
+    pindah = true; setTimeout(() => (pindah = false), 800);
+    slides.scrollTo({ left: aktif * slides.clientWidth, behavior: balikAwal ? "instant" : "smooth" });
+    tandai(); mulaiProgres();
+  }
+  function jadwal() {
+    clearTimeout(timer);
+    if (!jalan) return;
+    timer = setTimeout(() => { if (terlihat) ke(aktif + 1); jadwal(); }, DURASI);
+  }
+  function berhenti() {                       // tamu menyentuh galeri: otomatis berhenti, lanjut lagi setelah 8 detik
+    jalan = false; clearTimeout(timer); clearTimeout(idle); mulaiProgres();
+    if (fotos.length > 1 && !kurangiGerak) idle = setTimeout(() => { jalan = true; mulaiProgres(); jadwal(); }, 8000);
+  }
+
+  fotos.forEach((f, i) => {
     const b = document.createElement("button");
     b.type = "button";
     b.setAttribute("aria-label", "Foto " + (i + 1));
-    b.addEventListener("click", () => ke(i));
-    titik.appendChild(b);
+    const kecil = document.createElement("img");
+    kecil.src = f.src; kecil.alt = "";
+    b.appendChild(kecil);
+    b.addEventListener("click", () => { berhenti(); ke(i); });
+    thumbs.appendChild(b);
   });
   slides.addEventListener("scroll", () => {
+    if (pindah) return;
     const n = Math.round(slides.scrollLeft / slides.clientWidth);
     if (n !== aktif) { aktif = n; tandai(); }
   }, { passive: true });
-  
-  const btnPrev = el("sebelum");
-  const btnNext = el("sesudah");
-  if(btnPrev) btnPrev.addEventListener("click", () => ke(aktif - 1));
-  if(btnNext) btnNext.addEventListener("click", () => ke(aktif + 1));
-  
-  if (fotos.length === 1 && btnPrev && btnNext && titik) { 
-    btnPrev.hidden = btnNext.hidden = titik.hidden = true; 
-  }
-  tandai();
+  slides.addEventListener("pointerdown", berhenti);
+  btnPrev.addEventListener("click", () => { berhenti(); ke(aktif - 1); });
+  btnNext.addEventListener("click", () => { berhenti(); ke(aktif + 1); });
+
+  if (fotos.length === 1) btnPrev.hidden = btnNext.hidden = thumbs.hidden = hitungFoto.hidden = progres.hidden = true;
+  tandai(); mulaiProgres();
+
+  // otomatis hanya jalan saat galeri terlihat di layar
+  new IntersectionObserver(e => {
+    terlihat = e[0].isIntersecting;
+    if (terlihat) { mulaiProgres(); jadwal(); } else clearTimeout(timer);
+  }, { threshold: 0.4 }).observe(slides);
 });
